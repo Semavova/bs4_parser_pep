@@ -55,3 +55,18 @@ python main.py pep -o file
 ```
 python main.py pep -o pretty 
 ```
+
+Выводит таблицу prettytable с тремя колонками: "Ссылка на документацию", "Версия", "Статус":
+
+```
+python main.py latest-versions -o pretty 
+```
+
+Выводит ссылки на нововведения в python:
+
+```
+python main.py whats-new
+```
+
+## Автор:
+Владимир Семочкин
