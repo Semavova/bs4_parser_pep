@@ -9,6 +9,7 @@ from tqdm import tqdm
 from configs import configure_argument_parser, configure_logging
 from constants import (BASE_DIR, DOWNLOADS_DIR_NAME, EXPECTED_STATUS,
                        MAIN_DOC_URL, MAIN_PEP_URL)
+from exceptions import EmptyTagException
 from outputs import control_output
 from utils import find_tag, get_soup
 
@@ -24,6 +25,7 @@ ARGUMENTS = ('Аргументы командной строки: {args}')
 START_MESSAGE = ('Парсер запущен!')
 END_MESSAGE = ('Парсер завершил работу.')
 PEP_TITLES = ('Статус', 'Количество')
+PEP_TOTAL = ('Всего')
 WHATS_NEW_TITLES = ('Ссылка на статью', 'Заголовок', 'Редактор, Автор')
 LATEST_VERSION_TITLES = ('Ссылка на документацию', 'Версия', 'Статус')
 NOT_FOUND = ('Ничего не нашлось')
@@ -34,7 +36,12 @@ def pep(session):
     pattern = r'Status: (?P<status>\w+)'
     statuses = defaultdict(int)
     for pep in tqdm(
-        get_soup(session, MAIN_PEP_URL).select('#numerical-index tbody tr')
+        get_soup(
+            session,
+            MAIN_PEP_URL
+        ).select(
+            '#numerical-index tbody tr'
+        )
     ):
         status_tag = pep.find('td')
         pep_a_tag = pep.find('a')
@@ -56,12 +63,11 @@ def pep(session):
                 )
             )
         statuses[status] += 1
-    for log in logs:
-        logging.info(log)
+    list(map(logging.info, logs))
     return [
         PEP_TITLES,
         *statuses.items(),
-        ('Total', sum(statuses.values()))
+        (PEP_TOTAL, sum(statuses.values()))
     ]
 
 
@@ -69,10 +75,15 @@ def whats_new(session):
     logs = []
     whats_new_url = urljoin(MAIN_DOC_URL, 'whatsnew/')
     results = [WHATS_NEW_TITLES]
-    for section in tqdm(get_soup(session, whats_new_url).select(
-        '#what-s-new-in-python div.toctree-wrapper li.toctree-l1 > a'
-    )):
-        version_link = urljoin(whats_new_url, section['href'])
+    for anchor in tqdm(
+        get_soup(
+            session,
+            whats_new_url
+        ).select(
+            '#what-s-new-in-python div.toctree-wrapper li.toctree-l1 > a'
+        )
+    ):
+        version_link = urljoin(whats_new_url, anchor['href'])
         try:
             soup = get_soup(session, version_link)
         except ConnectionError as error:
@@ -83,8 +94,7 @@ def whats_new(session):
             find_tag(soup, 'h1').text,
             find_tag(soup, 'dl').text.replace('\n', ' ')
         ))
-    for log in logs:
-        logging.info(log)
+    list(map(logging.info, logs))
     return results
 
 
@@ -96,7 +106,7 @@ def latest_versions(session):
             a_tags = ul.find_all('a')
             break
     else:
-        raise NameError(NOT_FOUND)
+        raise EmptyTagException(NOT_FOUND)
     results = [LATEST_VERSION_TITLES]
     pattern = r'Python (?P<version>\d\.\d+) \((?P<status>.*)\)'
     for a_tag in tqdm(a_tags):
