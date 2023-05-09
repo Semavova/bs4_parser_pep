@@ -1,5 +1,6 @@
 import logging
 import re
+from collections import defaultdict
 from urllib.parse import urljoin
 
 import requests_cache
@@ -19,17 +20,22 @@ PROGRAMM_ERROR = (
     'Сбой в работе программы: {error}'
 )
 LOG = ('Архив был загружен и сохранён: {archive_path}')
+ARGUMENTS = ('Аргументы командной строки: {args}')
+START_MESSAGE = ('Парсер запущен!')
+END_MESSAGE = ('Парсер завершил работу.')
+PEP_TITLES = ('Статус', 'Количество')
+WHATS_NEW_TITLES = ('Ссылка на статью', 'Заголовок', 'Редактор, Автор')
+LATEST_VERSION_TITLES = ('Ссылка на документацию', 'Версия', 'Статус')
+NOT_FOUND = ('Ничего не нашлось')
 
 
 def pep(session):
     logs = []
-    tr_tags = get_soup(session, MAIN_PEP_URL).select(
-        '#numerical-index tbody tr'
-    )
-    results = [('Статус', 'Количество')]
     pattern = r'Status: (?P<status>\w+)'
-    statuses = {}
-    for pep in tqdm(tr_tags):
+    statuses = defaultdict(int)
+    for pep in tqdm(
+        get_soup(session, MAIN_PEP_URL).select('#numerical-index tbody tr')
+    ):
         status_tag = pep.find('td')
         pep_a_tag = pep.find('a')
         pep_link = urljoin(MAIN_PEP_URL, pep_a_tag['href'])
@@ -49,27 +55,24 @@ def pep(session):
                     statuses=expected_statuses
                 )
             )
-        if status not in statuses.keys():
-            statuses[status] = 0
         statuses[status] += 1
-    statuses['Total'] = sum(statuses.values())
     for log in logs:
         logging.info(log)
-    for status in statuses.keys():
-        results.append((status, statuses[status]))
-    return results
+    return [
+        PEP_TITLES,
+        *statuses.items(),
+        ('Total', sum(statuses.values()))
+    ]
 
 
 def whats_new(session):
     logs = []
     whats_new_url = urljoin(MAIN_DOC_URL, 'whatsnew/')
-    sections_by_python = get_soup(session, whats_new_url).select(
-        '#what-s-new-in-python div.toctree-wrapper li.toctree-l1'
-    )
-    results = [('Ссылка на статью', 'Заголовок', 'Редактор, Автор')]
-    for section in tqdm(sections_by_python):
-        version_a_tag = section.find('a')
-        version_link = urljoin(whats_new_url, version_a_tag['href'])
+    results = [WHATS_NEW_TITLES]
+    for section in tqdm(get_soup(session, whats_new_url).select(
+        '#what-s-new-in-python div.toctree-wrapper li.toctree-l1 > a'
+    )):
+        version_link = urljoin(whats_new_url, section['href'])
         try:
             soup = get_soup(session, version_link)
         except ConnectionError as error:
@@ -80,6 +83,8 @@ def whats_new(session):
             find_tag(soup, 'h1').text,
             find_tag(soup, 'dl').text.replace('\n', ' ')
         ))
+    for log in logs:
+        logging.info(log)
     return results
 
 
@@ -91,8 +96,8 @@ def latest_versions(session):
             a_tags = ul.find_all('a')
             break
     else:
-        raise KeyError('Ничего не нашлось')
-    results = [('Ссылка на документацию', 'Версия', 'Статус')]
+        raise NameError(NOT_FOUND)
+    results = [LATEST_VERSION_TITLES]
     pattern = r'Python (?P<version>\d\.\d+) \((?P<status>.*)\)'
     for a_tag in tqdm(a_tags):
         text_match = re.search(pattern, a_tag.text)
@@ -130,10 +135,10 @@ MODE_TO_FUNCTION = {
 
 def main():
     configure_logging()
-    logging.info('Парсер запущен!')
+    logging.info(START_MESSAGE)
     arg_parser = configure_argument_parser(MODE_TO_FUNCTION.keys())
     args = arg_parser.parse_args()
-    logging.info(f'Аргументы командной строки: {args}')
+    logging.info(ARGUMENTS.format(args=args))
     try:
         session = requests_cache.CachedSession()
         if args.clear_cache:
@@ -147,7 +152,7 @@ def main():
             PROGRAMM_ERROR.format(error=error),
             stack_info=True
         )
-    logging.info('Парсер завершил работу.')
+    logging.info(END_MESSAGE)
 
 
 if __name__ == '__main__':
